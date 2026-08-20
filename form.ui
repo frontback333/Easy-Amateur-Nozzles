@@ -1,18 +1,657 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>Widget</class>
- <widget class="QWidget" name="Widget">
+ <class>NozzleDesigner</class>
+ <widget class="QMainWindow" name="NozzleDesigner">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1100</width>
+    <height>733</height>
    </rect>
   </property>
-  <property name="windowTitle">
-   <string>Widget</string>
+  <property name="minimumSize">
+   <size>
+    <width>1100</width>
+    <height>700</height>
+   </size>
   </property>
+  <property name="windowTitle">
+   <string>Easy Amateur Nozzles</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow{background:#0b121a;color:#e7eef5} QLabel{color:#e7eef5;font-size:13px}#brand{font-size:18px;font-weight:800;letter-spacing:2px}#muted{color:#8da0b4}#heading{font-size:26px;font-weight:700;margin-top:8px}#sectionTitle{font-size:14px;font-weight:700}#group{color:#45d6b2;font-size:11px;font-weight:700;letter-spacing:1px;margin-top:8px}#panel{background:#131e29;border:1px solid #263746;border-radius:10px}#shapeCard{background:#131e29;border:1px solid #263746;border-radius:10px}#shapeCard:hover{background:#172633;border:1px solid #45d6b2}#cardTitle{font-size:16px;font-weight:700}#cardText{color:#a9bac9;min-height:62px}#availableBadge,#soonBadge{border-radius:8px;padding:3px 7px;font-size:10px;font-weight:700}#availableBadge{background:#1d554d;color:#76ecd0}#soonBadge{background:#293746;color:#93a4b4}QDoubleSpinBox,QSpinBox,QTextEdit,QComboBox{background:#0d161f;border:1px solid #304554;border-radius:5px;padding:6px;color:#e7eef5}QComboBox QAbstractItemView{background:#172633;color:#e7eef5;selection-background-color:#2d6470;selection-color:#ffffff;border:1px solid #45d6b2}QPushButton{background:#223342;color:#e7eef5;border:1px solid #365064;border-radius:8px;padding:12px;text-align:left;font-weight:600}QPushButton:hover{background:#2d4456}QPushButton:disabled{color:#8193a3;background:#17232e;border-color:#263746}#calculateButton{background:#20b998;color:#06211e;border:none;text-align:center;font-weight:800}#calculateButton:hover{background:#45d6b2}#status{background:#112c31;border:1px solid #235c63;border-radius:7px}#status QLabel{color:#a9e5df;padding:3px}</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="rootLayout">
+    <property name="spacing">
+     <number>18</number>
+    </property>
+    <property name="leftMargin">
+     <number>28</number>
+    </property>
+    <property name="topMargin">
+     <number>24</number>
+    </property>
+    <property name="rightMargin">
+     <number>28</number>
+    </property>
+    <property name="bottomMargin">
+     <number>24</number>
+    </property>
+    <item>
+     <layout class="QHBoxLayout" name="headerLayout">
+      <item>
+       <widget class="QLabel" name="brand">
+        <property name="text">
+         <string>EASY AMATEUR &lt;span style='color:#45d6b2'&gt;NOZZLES&lt;/span&gt;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="headerSpacer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="muted">
+        <property name="text">
+         <string>DESIGN WORKBENCH · v0.1</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QStackedWidget" name="pages">
+      <widget class="QWidget" name="selectionPage">
+       <layout class="QVBoxLayout" name="selectionLayout">
+        <item>
+         <widget class="QLabel" name="heading">
+          <property name="text">
+           <string>설계할 노즐 형상을 선택하세요</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="muted">
+          <property name="text">
+           <string>현재 Angelino 방식의 Aerospike만 설계 흐름을 지원합니다. 다른 형상은 같은 화면 구조에 차례로 추가할 수 있습니다.</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="shapeCardsLayout">
+          <item>
+           <widget class="QPushButton" name="angelinoButton">
+            <property name="minimumSize">
+             <size>
+              <width>190</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Aerospike (Angelino)
+
+중심 플러그를 따라
+유동을 팽창시키는
+aerospike contour.
+
+● 개발 가능</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="mocAerospikeButton">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>190</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Aerospike (MOC)
+
+특성선법(MOC) 기반
+aerospike 형상입니다.
+
+추후 지원</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="raoButton">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>190</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Bell (Rao)
+
+짧고 효율적인
+bell nozzle contour.
+
+추후 지원</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="mocBellButton">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>190</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Bell (MOC)
+
+특성선법(MOC) 기반
+bell nozzle 설계입니다.
+
+추후 지원</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="conicalButton">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>190</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Conical
+
+반각과 길이로 정의하는
+제작 친화적 원추형 노즐.
+
+추후 지원</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="selectionBottomSpacer">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="designPage">
+       <layout class="QVBoxLayout" name="designLayout">
+        <item>
+         <layout class="QHBoxLayout" name="designHeader">
+          <item>
+           <widget class="QPushButton" name="backButton">
+            <property name="text">
+             <string>← 형상 선택</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="heading">
+            <property name="text">
+             <string>Aerospike (Angelino)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="designSpacer">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QSplitter" name="mainSplitter">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+          <widget class="QFrame" name="panel">
+           <layout class="QVBoxLayout" name="inputLayout">
+            <item>
+             <widget class="QLabel" name="sectionTitle">
+              <property name="text">
+               <string>설계 입력값</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="group">
+              <property name="text">
+               <string>기본 설계 조건</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QFormLayout" name="inputForm">
+              <item row="0" column="0">
+               <widget class="QLabel" name="pressureText">
+                <property name="text">
+                 <string>연소실 압력</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QDoubleSpinBox" name="pressureSpin">
+                <property name="suffix">
+                 <string> MPa</string>
+                </property>
+                <property name="decimals">
+                 <number>2</number>
+                </property>
+                <property name="minimum">
+                 <double>0.010000000000000</double>
+                </property>
+                <property name="maximum">
+                 <double>100.000000000000000</double>
+                </property>
+                <property name="value">
+                 <double>3.500000000000000</double>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="altitudeText">
+                <property name="text">
+                 <string>설계 고도</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QDoubleSpinBox" name="altitudeSpin">
+                <property name="suffix">
+                 <string> m</string>
+                </property>
+                <property name="maximum">
+                 <double>100000.000000000000000</double>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="throatText">
+                <property name="text">
+                 <string>목 반지름</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QDoubleSpinBox" name="throatSpin">
+                <property name="suffix">
+                 <string> mm</string>
+                </property>
+                <property name="minimum">
+                 <double>0.100000000000000</double>
+                </property>
+                <property name="maximum">
+                 <double>500.000000000000000</double>
+                </property>
+                <property name="value">
+                 <double>20.000000000000000</double>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="machText">
+                <property name="text">
+                 <string>설계 Mach 수</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QDoubleSpinBox" name="machSpin">
+                <property name="minimum">
+                 <double>1.010000000000000</double>
+                </property>
+                <property name="maximum">
+                 <double>10.000000000000000</double>
+                </property>
+                <property name="value">
+                 <double>3.000000000000000</double>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="truncationText">
+                <property name="text">
+                 <string>Plug truncation</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QDoubleSpinBox" name="truncationSpin">
+                <property name="suffix">
+                 <string> %</string>
+                </property>
+                <property name="minimum">
+                 <double>5.000000000000000</double>
+                </property>
+                <property name="maximum">
+                 <double>100.000000000000000</double>
+                </property>
+                <property name="value">
+                 <double>80.000000000000000</double>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="group">
+              <property name="text">
+               <string>해상도 / 계산 정밀도</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QFormLayout" name="precisionForm">
+              <item row="0" column="0">
+               <widget class="QLabel" name="pointText">
+                <property name="text">
+                 <string>Contour points</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="pointSpin">
+                <property name="suffix">
+                 <string> points</string>
+                </property>
+                <property name="minimum">
+                 <number>10</number>
+                </property>
+                <property name="maximum">
+                 <number>1000</number>
+                </property>
+                <property name="value">
+                 <number>80</number>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="sweepText">
+                <property name="text">
+                 <string>Mach number sweep</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="sweepSpin">
+                <property name="suffix">
+                 <string> sweeps</string>
+                </property>
+                <property name="minimum">
+                 <number>10</number>
+                </property>
+                <property name="maximum">
+                 <number>5000</number>
+                </property>
+                <property name="value">
+                 <number>200</number>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="muted">
+              <property name="text">
+               <string>Point 수는 출력 contour의 해상도입니다. Mach sweep은 향후 Angelino 수치해석의 정밀도를 제어합니다.</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="inputSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="calculateButton">
+              <property name="text">
+               <string>CONTOUR 계산 및 미리보기</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="resultsPanel">
+           <layout class="QVBoxLayout" name="resultsLayout">
+            <item>
+             <widget class="QFrame" name="status">
+              <layout class="QHBoxLayout" name="statusLayout">
+               <item>
+                <widget class="QLabel" name="statusLabel">
+                 <property name="text">
+                  <string>입력값을 확인한 뒤 contour 계산을 실행하세요.</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSplitter" name="previewSplitter">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <widget class="QFrame" name="panel">
+               <layout class="QVBoxLayout" name="contourLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="contourHeader">
+                  <item>
+                   <widget class="QLabel" name="sectionTitle">
+                    <property name="text">
+                     <string>2D contour preview</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="contourHeaderSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Orientation::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>20</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="pointDisplayCombo">
+                    <item>
+                     <property name="text">
+                      <string>표시 안함</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>일부 표시</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>전체 표시</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QWidget" name="contourHost" native="true"/>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QFrame" name="panel">
+               <layout class="QVBoxLayout" name="modelLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="modelHeader">
+                  <item>
+                   <widget class="QLabel" name="sectionTitle">
+                    <property name="text">
+                     <string>3D nozzle preview</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="modelHeaderSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Orientation::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>20</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="renderModeCombo">
+                    <item>
+                     <property name="text">
+                      <string>Wireframe</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Surface with edges</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Smooth surface</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QWidget" name="modelHost" native="true"/>
+                </item>
+                <item>
+                 <widget class="QLabel" name="muted">
+                  <property name="text">
+                   <string>드래그: 회전  ·  마우스 휠: 확대/축소</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+            <item>
+             <widget class="QFrame" name="panel">
+              <layout class="QVBoxLayout" name="dataLayout">
+               <item>
+                <layout class="QHBoxLayout" name="dataHeader">
+                 <item>
+                  <widget class="QLabel" name="sectionTitle">
+                   <property name="text">
+                    <string>Contour 좌표 · x, r [mm]</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="dataSpacer">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="exportButton">
+                   <property name="text">
+                    <string>CSV로 다운로드</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <widget class="QTextEdit" name="coordinatesText">
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                 <property name="placeholderText">
+                  <string>계산 결과의 좌표 목록이 여기에 표시됩니다.</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
  </widget>
  <resources/>
  <connections/>
