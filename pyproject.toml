@@ -1,5 +1,9 @@
 [project]
-name = "PySide Widgets Project"
+name = "easy-amateur-nozzles"
+version = "0.1.0"
+description = "Qt Widgets scaffold for amateur rocket nozzle design"
+requires-python = ">=3.10"
+dependencies = ["PySide6"]
 
 [tool.pyside6-project]
-files = ["widget.py", "form.ui"]
+files = ["widget.py", "angelino.py", "form.ui"]
