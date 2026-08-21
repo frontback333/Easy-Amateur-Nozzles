@@ -4,109 +4,31 @@ from __future__ import annotations
 import csv
 import math
 import sys
+from array import array
 from pathlib import Path
 
 from angelino import AngelinoCalculator, AngelinoInputs
 
-from PySide6.QtCore import QFile, QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QEvent, QFile, QFileSystemWatcher, QObject, QPoint, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QSurfaceFormat, QVector4D
+from PySide6.QtOpenGL import QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram, QOpenGLVertexArrayObject
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
-    QBoxLayout, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QTabWidget, QToolTip,
-    QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QFileDialog, QMessageBox, QToolTip, QVBoxLayout, QWidget, QSpinBox
 
 
 PRESSURE_TO_MPA = {"MPa": 1.0, "psi": 0.006894757, "bar": 0.1}
 LENGTH_TO_MM = {"mm": 1.0, "inch": 25.4, "m": 1000.0}
 
 
-class NoWheelComboBox(QComboBox):
-    """Keeps a value selected while the user scrolls a surrounding panel."""
+class NoWheelFilter(QObject):
+    """Lets a containing panel scroll without silently changing an input value."""
 
-    def wheelEvent(self, event):
-        event.ignore()
-
-
-class FixedSuffixSpinBox(QDoubleSpinBox):
-    """A left-aligned value with a unit label pinned to the field's right edge."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.unit = ""
-        self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-    def setSuffix(self, suffix):
-        self.unit = suffix.strip()
-        self.lineEdit().setTextMargins(0, 0, max(0, self.fontMetrics().horizontalAdvance(self.unit) + 12), 0)
-        super().setSuffix("")
-        self.update()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self.unit:
-            return
-        painter = QPainter(self)
-        painter.setPen(QColor("#9eb3c8"))
-        button_width = 22
-        text_area = self.rect().adjusted(4, 0, -button_width - 5, 0)
-        painter.drawText(text_area, Qt.AlignRight | Qt.AlignVCenter, self.unit)
-
-
-class ResponsiveGroups(QWidget):
-    """Places input groups side-by-side, then stacks them on narrow viewports."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.layout = QBoxLayout(QBoxLayout.LeftToRight, self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(12)
-
-    def add_group(self, group):
-        self.layout.addWidget(group, 1)
-
-    def resizeEvent(self, event):
-        direction = QBoxLayout.LeftToRight if self.width() >= 720 else QBoxLayout.TopToBottom
-        if self.layout.direction() != direction:
-            self.layout.setDirection(direction)
-        super().resizeEvent(event)
-
-
-class ShapeCard(QFrame):
-    selected = Signal(str)
-
-    def __init__(self, name: str, description: str, available: bool):
-        super().__init__()
-        self.name = name
-        self.available = available
-        self.setObjectName("shapeCard")
-        self.setCursor(Qt.PointingHandCursor if available else Qt.ForbiddenCursor)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(9)
-
-        title = QLabel(name)
-        title.setObjectName("cardTitle")
-        layout.addWidget(title)
-
-        detail = QLabel(description)
-        detail.setObjectName("cardText")
-        detail.setWordWrap(True)
-        layout.addWidget(detail)
-        layout.addStretch()
-
-        badge = QLabel("개발 가능" if available else "추후 지원")
-        badge.setObjectName("availableBadge" if available else "soonBadge")
-        badge.setAlignment(Qt.AlignCenter)
-        badge.setFixedWidth(72)
-        layout.addWidget(badge, alignment=Qt.AlignLeft)
-
-    def mousePressEvent(self, event):
-        if self.available:
-            self.selected.emit(self.name)
-        super().mousePressEvent(event)
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Wheel:
+            event.ignore()
+            return True
+        return super().eventFilter(watched, event)
 
 
 class ContourPreview(QWidget):
@@ -114,14 +36,15 @@ class ContourPreview(QWidget):
         super().__init__()
         self.points: list[tuple[float, float]] = []
         self.lip: list[tuple[float, float]] = []
-        self.wall = 0.0
+        self.lip_wall = 0.0
         self.point_mode = "표시 안함"
         self.hit_points: list[tuple[QPoint, int, float, float]] = []
         self.setMinimumHeight(260)
         self.setMouseTracking(True)
 
-    def set_geometry(self, points, lip, wall):
-        self.points, self.lip, self.wall = points, lip, wall
+    def set_geometry(self, points, lip, lip_wall):
+        self.points, self.lip = points, lip
+        self.lip_wall = lip_wall
         self.update()
 
     def set_point_mode(self, mode):
@@ -150,7 +73,7 @@ class ContourPreview(QWidget):
         min_x = min(x for x, _ in all_points)
         max_x = max(x for x, _ in all_points)
         span_x = max_x - min_x or 1
-        max_radius = max(r for _, r in all_points) + self.wall or 1
+        max_radius = max(r for _, r in all_points) + self.lip_wall or 1
         center_y = area.center().y()
 
         painter.setPen(QPen(QColor("#2c3d4e"), 1))
@@ -166,7 +89,7 @@ class ContourPreview(QWidget):
             painter.drawPath(path)
 
         for sign in (-1, 1):
-            for offset, color, width in ((0, QColor("#f0bd68"), 2.4), (self.wall, QColor("#d38c42"), 2.0)):
+            for offset, color, width in ((0, QColor("#f0bd68"), 2.4), (self.lip_wall, QColor("#d38c42"), 2.0)):
                 path = QPainterPath()
                 for index, (x, radius) in enumerate(self.lip):
                     px = area.left() + area.width() * (x - min_x) / span_x
@@ -201,26 +124,59 @@ class ContourPreview(QWidget):
         super().leaveEvent(event)
 
 
-class ModelPreview(QWidget):
-    """Opaque, turntable-style preview of a wall-thickness-aware surface."""
+class ModelPreview(QOpenGLWidget):
+    """Hardware depth-buffer preview, matching conventional CAD navigation."""
+
+    GL_COLOR_BUFFER_BIT = 0x00004000
+    GL_DEPTH_BUFFER_BIT = 0x00000100
+    GL_DEPTH_TEST = 0x0B71
+    GL_MULTISAMPLE = 0x809D
+    GL_CULL_FACE = 0x0B44
+    GL_BLEND = 0x0BE2
+    GL_LEQUAL = 0x0203
+    GL_FLOAT = 0x1406
+    GL_TRIANGLES = 0x0004
+    GL_LINES = 0x0001
 
     def __init__(self):
         super().__init__()
         self.points = []
         self.lip = []
-        self.wall = 0.0
+        self.lip_wall = 0.0
         self.yaw, self.pitch, self.zoom = -0.65, 0.35, 1.0
         self.last = None
+        self.show_lip = True
+        self.show_plug = True
         self.mode = "Wireframe"
+        self.surface_data = array("f")
+        self.edge_data = array("f")
+        self.surface_count = self.edge_count = 0
+        self.surface_buffer = None
+        self.edge_buffer = None
+        self.vertex_array = None
+        self.program = None
+        self.geometry_dirty = True
+        self.min_x, self.max_x, self.max_radius, self.depth_extent = -1, 1, 1, 1
+        surface_format = QSurfaceFormat()
+        surface_format.setDepthBufferSize(24)
+        surface_format.setSamples(4)
+        self.setFormat(surface_format)
         self.setMinimumHeight(260)
         self.setCursor(Qt.OpenHandCursor)
 
-    def set_geometry(self, points, lip, wall):
-        self.points, self.lip, self.wall = points, lip, wall
+    def set_geometry(self, points, lip, lip_wall):
+        self.points, self.lip = points, lip
+        self.lip_wall = lip_wall
+        self.rebuild_geometry()
         self.update()
 
     def set_mode(self, mode):
         self.mode = mode
+        self.update()
+
+    def set_visibility(self, lip, plug):
+        self.show_lip, self.show_plug = lip, plug
+        self.rebuild_geometry()
         self.update()
 
     def mousePressEvent(self, event):
@@ -231,99 +187,186 @@ class ModelPreview(QWidget):
     def mouseMoveEvent(self, event):
         if self.last is not None:
             delta = event.position().toPoint() - self.last
-            self.yaw += delta.x() * 0.012
-            self.pitch = max(-1.35, min(1.35, self.pitch - delta.y() * 0.012))
+            self.yaw -= delta.x() * 0.012
+            self.pitch = max(-1.35, min(1.35, self.pitch + delta.y() * 0.012))
             self.last = event.position().toPoint()
             self.update()
 
     def mouseReleaseEvent(self, event):
         self.last = None
         self.setCursor(Qt.OpenHandCursor)
+        self.update()
 
     def wheelEvent(self, event):
         self.zoom = max(0.35, min(2.8, self.zoom * math.pow(1.0015, event.angleDelta().y())))
         self.update()
 
-    def project(self, x, y, z, scale, center_x, center_y):
-        xx = x * math.cos(self.yaw) - z * math.sin(self.yaw)
-        zz = x * math.sin(self.yaw) + z * math.cos(self.yaw)
-        yy = y * math.cos(self.pitch) - zz * math.sin(self.pitch)
-        depth = y * math.sin(self.pitch) + zz * math.cos(self.pitch)
-        return QPoint(round(center_x + xx * scale), round(center_y - yy * scale)), depth
-
     @staticmethod
-    def append_visible_face(faces, vertices):
-        points = [point for point, _ in vertices]
-        signed_area = sum(points[k].x() * points[(k + 1) % 4].y() - points[(k + 1) % 4].x() * points[k].y() for k in range(4))
-        if signed_area > 0:
-            faces.append((sum(depth for _, depth in vertices) / 4, points))
+    def add_vertex(target, point, color, normal):
+        target.extend((*point, color.redF(), color.greenF(), color.blueF(), *normal))
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#101923"))
-        if not self.points:
-            painter.setPen(QColor("#8da0b4"))
-            painter.drawText(self.rect(), Qt.AlignCenter, "계산 후 3D preview가 표시됩니다")
+    def add_face(self, vertices, color):
+        first, second, third = vertices[:3]
+        u = tuple(b - a for a, b in zip(first, second))
+        v = tuple(b - a for a, b in zip(first, third))
+        normal = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        length = math.sqrt(sum(component * component for component in normal)) or 1
+        normal = tuple(component / length for component in normal)
+        for index in range(1, len(vertices) - 1):
+            for vertex in (vertices[0], vertices[index], vertices[index + 1]):
+                self.add_vertex(self.surface_data, vertex, color, normal)
+        edge_color = color.darker(170)
+        for index, vertex in enumerate(vertices):
+            self.add_vertex(self.edge_data, vertex, edge_color, normal)
+            self.add_vertex(self.edge_data, vertices[(index + 1) % len(vertices)], edge_color, normal)
+
+    def rebuild_geometry(self):
+        self.surface_data = array("f")
+        self.edge_data = array("f")
+        all_points = self.points + self.lip
+        if not all_points:
+            self.surface_count = self.edge_count = 0
+            self.geometry_dirty = True
             return
-
-        profiles = ((self.lip, True), (self.points, False))
-        all_points = [point for profile, _ in profiles for point in profile]
-        min_x, max_x = min(x for x, _ in all_points), max(x for x, _ in all_points)
-        width = max_x - min_x or 1
-        max_radius = max(r for _, r in all_points) + self.wall
-        scale = min(self.width() / (width * 1.35), self.height() / (max_radius * 2.8)) * self.zoom
-        segments = 28
-        meshes, faces = [], []
-        for profile, is_lip in profiles:
-            step = max(1, len(profile) // 28)
+        self.min_x = min(x for x, _ in all_points)
+        self.max_x = max(x for x, _ in all_points)
+        self.max_radius = max([radius for _, radius in self.points] + [radius + self.lip_wall for _, radius in self.lip])
+        center_x = (self.min_x + self.max_x) / 2
+        self.depth_extent = max(1.0, max(math.hypot(x - center_x, radius + (self.lip_wall if is_lip else 0)) for profile, is_lip in ((self.lip, True), (self.points, False)) for x, radius in profile))
+        profiles = ((self.lip, self.lip_wall, True, QColor("#f0a44c")),
+                    (self.points, 0.0, False, QColor("#45d6b2")))
+        segments = 48
+        for profile, wall, is_lip, color in profiles:
+            if (is_lip and not self.show_lip) or (not is_lip and not self.show_plug):
+                continue
+            step = max(1, len(profile) // 48)
             rows = profile[::step]
             if rows[-1] != profile[-1]:
                 rows.append(profile[-1])
-            mesh = []
-            for x, radius in rows:
-                center = x - (min_x + max_x) / 2
-                physical_radius = radius + self.wall if is_lip else radius
-                mesh.append([self.project(center, physical_radius * math.cos(2 * math.pi * j / segments), physical_radius * math.sin(2 * math.pi * j / segments), scale, self.width() / 2, self.height() / 2) for j in range(segments)])
-            meshes.append(mesh)
-            for row in range(len(mesh) - 1):
-                for segment in range(segments):
-                    self.append_visible_face(faces, [mesh[row][segment], mesh[row][(segment + 1) % segments], mesh[row + 1][(segment + 1) % segments], mesh[row + 1][segment]])
-
-        if self.mode != "Wireframe":
-            # Adjacent antialiased polygons leave hairline gaps on some Qt
-            # backends.  Disable antialiasing while the opaque shell is
-            # composited; otherwise the gaps resemble unwanted wireframe
-            # edges in Smooth surface mode.
-            painter.setRenderHint(QPainter.Antialiasing, False)
-            painter.setPen(Qt.NoPen)
-            for depth, vertices in sorted(faces, key=lambda face: face[0]):
-                path = QPainterPath(vertices[0])
-                for point in vertices[1:]:
-                    path.lineTo(point)
-                path.closeSubpath()
-                painter.fillPath(path, QColor("#45d6b2"))
-
-            painter.setRenderHint(QPainter.Antialiasing)
-
-        if self.mode == "Wireframe":
-            painter.setPen(QPen(QColor("#56d5d1"), 1.1))
-            for mesh in meshes:
-                for row in mesh:
+            outer = [[(x - center_x, (radius + wall if is_lip else radius) * math.cos(2 * math.pi * segment / segments), (radius + wall if is_lip else radius) * math.sin(2 * math.pi * segment / segments)) for segment in range(segments)] for x, radius in rows]
+            inner = [[(x - center_x, radius * math.cos(2 * math.pi * segment / segments), radius * math.sin(2 * math.pi * segment / segments)) for segment in range(segments)] for x, radius in rows] if is_lip else None
+            for mesh, inward in ((outer, False), (inner, True)) if is_lip else ((outer, False),):
+                for row in range(len(mesh) - 1):
                     for segment in range(segments):
-                        painter.drawLine(row[segment][0], row[(segment + 1) % segments][0])
-                for segment in range(0, segments, 2):
-                    for row in range(len(mesh) - 1):
-                        painter.drawLine(mesh[row][segment][0], mesh[row + 1][segment][0])
-        elif self.mode == "Surface with edges":
-            painter.setPen(QPen(QColor("#176f65"), 0.7))
-            for _, vertices in faces:
-                for index in range(4):
-                    painter.drawLine(vertices[index], vertices[(index + 1) % 4])
+                        face = (mesh[row][segment], mesh[row][(segment + 1) % segments], mesh[row + 1][(segment + 1) % segments], mesh[row + 1][segment])
+                        self.add_face(tuple(reversed(face)) if inward else face, color)
+            for ring in (0, -1):
+                for segment in range(segments):
+                    if is_lip:
+                        face = (outer[ring][segment], outer[ring][(segment + 1) % segments], inner[ring][(segment + 1) % segments], inner[ring][segment])
+                    else:
+                        face = ((rows[ring][0] - center_x, 0, 0), outer[ring][segment], outer[ring][(segment + 1) % segments])
+                    self.add_face(tuple(reversed(face)) if ring == 0 else face, color)
+        self.surface_count = len(self.surface_data) // 9
+        self.edge_count = len(self.edge_data) // 9
+        self.geometry_dirty = True
 
+    def initializeGL(self):
+        self.program = QOpenGLShaderProgram(self)
+        vertex_shader = """
+            attribute vec3 position;
+            attribute vec3 color;
+            attribute vec3 normal;
+            uniform vec4 view;
+            uniform vec4 camera;
+            varying vec3 fragmentColor;
+            varying float illumination;
+            void main() {
+                float yaw = view.x, pitch = view.y, aspect = view.z;
+                float cy = cos(yaw), sy = sin(yaw);
+                vec3 turned = vec3(position.x * cy - position.z * sy, position.y, position.x * sy + position.z * cy);
+                vec3 turnedNormal = vec3(normal.x * cy - normal.z * sy, normal.y, normal.x * sy + normal.z * cy);
+                float cp = cos(pitch), sp = sin(pitch);
+                vec3 rotated = vec3(turned.x, turned.y * cp - turned.z * sp, turned.y * sp + turned.z * cp);
+                vec3 rotatedNormal = vec3(turnedNormal.x, turnedNormal.y * cp - turnedNormal.z * sp, turnedNormal.y * sp + turnedNormal.z * cp);
+                float focal = camera.x, distance = camera.y, nearPlane = camera.z, farPlane = camera.w;
+                vec3 eye = rotated - vec3(0.0, 0.0, distance);
+                float a = (farPlane + nearPlane) / (nearPlane - farPlane);
+                float b = 2.0 * farPlane * nearPlane / (nearPlane - farPlane);
+                gl_Position = vec4(eye.x * focal / aspect, eye.y * focal, a * eye.z + b, -eye.z);
+                fragmentColor = color;
+                illumination = 0.32 + 0.68 * max(dot(normalize(rotatedNormal), normalize(vec3(-0.35, 0.55, 0.75))), 0.0);
+            }
+        """
+        fragment_shader = """
+            varying vec3 fragmentColor;
+            varying float illumination;
+            void main() { gl_FragColor = vec4(fragmentColor * illumination, 1.0); }
+        """
+        if not self.program.addShaderFromSourceCode(QOpenGLShader.Vertex, vertex_shader) or not self.program.addShaderFromSourceCode(QOpenGLShader.Fragment, fragment_shader) or not self.program.link():
+            raise RuntimeError(f"OpenGL shader setup failed: {self.program.log()}")
+        self.uniforms = {name: self.program.uniformLocation(name.encode()) for name in ("view", "camera")}
+        self.attributes = {name: self.program.attributeLocation(name.encode()) for name in ("position", "color", "normal")}
+        self.surface_buffer = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+        self.edge_buffer = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+        self.vertex_array = QOpenGLVertexArrayObject(self)
+        self.vertex_array.create()
+        self.surface_buffer.create()
+        self.edge_buffer.create()
+
+    def resizeGL(self, width, height):
+        self.context().functions().glViewport(0, 0, width, height)
+
+    def upload_geometry(self):
+        for buffer, data in ((self.surface_buffer, self.surface_data), (self.edge_buffer, self.edge_data)):
+            raw = data.tobytes()
+            buffer.bind()
+            buffer.allocate(len(raw))
+            buffer.write(0, raw, len(raw))
+            buffer.release()
+        self.geometry_dirty = False
+
+    def draw_buffer(self, buffer, count, primitive):
+        if not count:
+            return
+        functions = self.context().functions()
+        self.vertex_array.bind()
+        buffer.bind()
+        self.program.enableAttributeArray(self.attributes["position"])
+        self.program.enableAttributeArray(self.attributes["color"])
+        self.program.enableAttributeArray(self.attributes["normal"])
+        self.program.setAttributeBuffer(self.attributes["position"], self.GL_FLOAT, 0, 3, 36)
+        self.program.setAttributeBuffer(self.attributes["color"], self.GL_FLOAT, 12, 3, 36)
+        self.program.setAttributeBuffer(self.attributes["normal"], self.GL_FLOAT, 24, 3, 36)
+        functions.glDrawArrays(primitive, 0, count)
+        buffer.release()
+        self.vertex_array.release()
+
+    def paintGL(self):
+        functions = self.context().functions()
+        functions.glClearColor(16 / 255, 25 / 255, 35 / 255, 1)
+        functions.glClearDepthf(1.0)
+        functions.glClear(self.GL_COLOR_BUFFER_BIT | self.GL_DEPTH_BUFFER_BIT)
+        if not self.surface_count:
+            return
+        if self.geometry_dirty:
+            self.upload_geometry()
+        functions.glEnable(self.GL_DEPTH_TEST)
+        functions.glEnable(self.GL_MULTISAMPLE)
+        functions.glDepthFunc(self.GL_LEQUAL)
+        functions.glDepthMask(True)
+        functions.glDisable(self.GL_BLEND)
+        functions.glDisable(self.GL_CULL_FACE)
+        self.program.bind()
+        aspect = max(self.width() / max(self.height(), 1), 0.1)
+        width = max(self.max_x - self.min_x, 1)
+        fit_scale = min(2 * aspect / (width * 1.35), 2 / (self.max_radius * 2.8))
+        distance = self.depth_extent * 4
+        focal = fit_scale * distance * self.zoom
+        near_plane = max(0.1, distance - self.depth_extent * 1.1)
+        far_plane = distance + self.depth_extent * 1.1
+        self.program.setUniformValue(self.uniforms["view"], QVector4D(self.yaw, self.pitch, aspect, 0))
+        self.program.setUniformValue(self.uniforms["camera"], QVector4D(focal, distance, near_plane, far_plane))
+        if self.mode != "Wireframe":
+            self.draw_buffer(self.surface_buffer, self.surface_count, self.GL_TRIANGLES)
+        if self.mode != "Smooth surface":
+            functions.glLineWidth(1.0)
+            self.draw_buffer(self.edge_buffer, self.edge_count, self.GL_LINES)
+        self.program.release()
 
 class App:
     def __init__(self):
+        self.form_path = Path(__file__).with_name("form.ui")
         self.window = self.load_form()
         self.calculator = AngelinoCalculator()
         self.points = []
@@ -331,18 +374,42 @@ class App:
         self.lip_outer_points = []
         self.setup_units()
         self.setup_previews()
-        self.build_shape_cards()
-        self.organize_design_tabs()
         self.connect_signals()
+        self.ui_watcher = QFileSystemWatcher([str(self.form_path)])
+        self.ui_watcher.fileChanged.connect(self.schedule_ui_reload)
 
     def load_form(self):
-        source = QFile(str(Path(__file__).with_name("form.ui")))
+        source = QFile(str(self.form_path))
         source.open(QFile.ReadOnly)
         window = QUiLoader().load(source)
         source.close()
         if window is None:
             raise RuntimeError("form.ui를 불러올 수 없습니다.")
         return window
+
+    def schedule_ui_reload(self):
+        """Reload Designer changes immediately after a complete file save."""
+        QTimer.singleShot(150, self.reload_form)
+
+    def reload_form(self):
+        if not self.form_path.exists():
+            return
+        previous = self.window
+        geometry = previous.geometry()
+        try:
+            self.window = self.load_form()
+            self.setup_units()
+            self.setup_previews()
+            self.connect_signals()
+        except RuntimeError:
+            self.window = previous
+            return
+        self.window.setGeometry(geometry)
+        self.window.show()
+        previous.close()
+        previous.deleteLater()
+        if str(self.form_path) not in self.ui_watcher.files():
+            self.ui_watcher.addPath(str(self.form_path))
 
     def ui(self, name):
         widget = self.window.findChild(QWidget, name)
@@ -353,218 +420,59 @@ class App:
     def setup_previews(self):
         self.contour = ContourPreview()
         self.model = ModelPreview()
+        self.lip_visible = self.ui("lipVisible")
+        self.plug_visible = self.ui("plugVisible")
+        self.model.set_mode(self.ui("renderModeCombo").currentText())
         for host_name, preview in (("contourHost", self.contour), ("modelHost", self.model)):
             layout = QVBoxLayout(self.ui(host_name))
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(preview)
 
-    def organize_design_tabs(self):
-        """Separates growing design inputs from combined visual/data results."""
-        design_layout = self.window.findChild(QVBoxLayout, "designLayout")
-        splitter = self.ui("mainSplitter")
-        input_panel, results_panel = splitter.widget(0), splitter.widget(1)
-
-        input_scroll = QScrollArea()
-        input_scroll.setWidgetResizable(True)
-        input_scroll.setFrameShape(QFrame.NoFrame)
-        input_scroll.setStyleSheet("QScrollArea { background: #0b121a; border: none; }")
-        input_scroll.setWidget(input_panel)
-
-        tabs = QTabWidget()
-        tabs.setObjectName("designTabs")
-        tabs.addTab(input_scroll, "설계 입력값")
-        tabs.addTab(results_panel, "계산 결과")
-        design_layout.replaceWidget(splitter, tabs)
-        splitter.deleteLater()
-
-    def build_shape_cards(self):
-        layout = self.window.findChild(QHBoxLayout, "shapeCardsLayout")
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        cards = [
-            ("Plug nozzle (Angelino)", "Angelino 논문의 중심 Plug contour와 Lip을 계산합니다. 고도 보상 특성을 목표로 하는 설계 방식입니다.", True),
-            ("Aerospike (MOC)", "특성선법(Method of Characteristics)으로 형상을 구성하는 aerospike 방식입니다.", False),
-            ("Bell (Rao)", "짧고 효율적인 bell nozzle contour를 만드는 고전적 최적화 방식입니다.", False),
-            ("Bell (MOC)", "특성선법을 이용한 axisymmetric bell nozzle 설계입니다.", False),
-            ("Conical", "반각과 길이로 정의하는 단순하고 제작 친화적인 원추형 노즐입니다.", False),
-        ]
-        for name, description, available in cards:
-            card = ShapeCard(name, description, available)
-            card.selected.connect(lambda _: self.ui("pages").setCurrentIndex(1))
-            layout.addWidget(card)
-
     def setup_units(self):
-        form = self.window.findChild(QFormLayout, "inputForm")
-        for name in ("pressureSpin", "altitudeSpin", "throatSpin", "machSpin", "truncationSpin"):
-            self.upgrade_double_spin(form, name)
-        self.pressure_unit = NoWheelComboBox()
-        self.pressure_unit.addItems(["MPa", "psi", "bar"])
-        self.length_unit = NoWheelComboBox()
-        self.length_unit.addItems(["mm", "inch", "m"])
-        self.wall_spin = FixedSuffixSpinBox()
-        self.wall_spin.setRange(0.00001, 1000)
-        self.wall_spin.setValue(2)
-        self.wall_spin.setDecimals(5)
-        self.lip_pipe_length_spin = FixedSuffixSpinBox()
-        self.lip_pipe_length_spin.setRange(0.1, 1000)
-        self.lip_pipe_length_spin.setValue(30)
-        self.lip_pipe_length_spin.setDecimals(5)
-        self.lip_pipe_radius_spin = FixedSuffixSpinBox()
-        self.lip_pipe_radius_spin.setRange(0.1, 1000)
-        self.lip_pipe_radius_spin.setValue(28)
-        self.lip_pipe_radius_spin.setDecimals(5)
-        self.plug_column_length_spin = FixedSuffixSpinBox()
-        self.plug_column_length_spin.setRange(0.1, 1000)
-        self.plug_column_length_spin.setValue(20)
-        self.plug_column_length_spin.setDecimals(5)
-        self.plug_column_radius_spin = FixedSuffixSpinBox()
-        self.plug_column_radius_spin.setRange(0.1, 1000)
-        self.plug_column_radius_spin.setValue(16)
-        self.plug_column_radius_spin.setDecimals(5)
-        self.ui("machSpin").setRange(1.05, 1.67)
-        self.ui("machSpin").setValue(1.22)
-        self.ui("machSpin").setDecimals(3)
-        self.ui("machSpin").setSuffix("")
-        form.addRow("압력 단위", self.pressure_unit)
-        form.addRow("길이 단위", self.length_unit)
-        form.addRow("노즐 벽 두께", self.wall_spin)
+        self.pressure_unit = self.ui("pressureUnitCombo")
+        self.length_unit = self.ui("lengthUnitCombo")
+        self.exit_pressure_spin = self.ui("exitPressureSpin")
+        self.throat_area_spin = self.ui("throatAreaSpin")
+        self.lip_wall_spin = self.ui("lipWallSpin")
+        self.lip_pipe_radius_spin = self.ui("lipPipeRadiusSpin")
+        self.plug_column_length_spin = self.ui("plugColumnLengthSpin")
+        self.plug_column_radius_spin = self.ui("plugColumnRadiusSpin")
+        self.plug_converging_length_spin = self.ui("plugConvergingLengthSpin")
+        self.throat_length_spin = self.ui("throatLengthSpin")
+        self.me_value = self.ui("meValue")
         self.pressure_factor = 1.0
         self.length_factor = 1.0
-        self.update_length_unit("mm")
-        self.align_input_fields()
-        self.rebuild_input_groups(form)
-
-    def upgrade_double_spin(self, form, name):
-        """Replaces a Designer spinbox with a field that pins its suffix right."""
-        old = self.ui(name)
-        row, role = form.getWidgetPosition(old)
-        replacement = FixedSuffixSpinBox()
-        replacement.setObjectName(name)
-        replacement.setRange(old.minimum(), old.maximum())
-        replacement.setDecimals(old.decimals())
-        replacement.setSingleStep(old.singleStep())
-        replacement.setValue(old.value())
-        replacement.setSuffix(old.suffix())
-        form.setWidget(row, role, replacement)
-        old.setParent(None)
-        old.deleteLater()
-
-    def align_input_fields(self):
-        """Pins values and their suffixes to the right side of each input control."""
-        field_names = (
-            "pressureSpin",
-            "altitudeSpin",
-            "throatSpin",
-            "machSpin",
-            "truncationSpin",
-            "pointSpin",
-            "sweepSpin",
-        )
-        for name in field_names:
-            self.ui(name).setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-    def rebuild_input_groups(self, basic_form):
-        """Groups forms horizontally without allowing a horizontal scroll area."""
-        input_layout = self.window.findChild(QVBoxLayout, "inputLayout")
-        precision_form = self.window.findChild(QFormLayout, "precisionForm")
-        # The Designer stylesheet overrides some label object names, so use their
-        # stable positions in the original input layout rather than object names.
-        title = input_layout.itemAt(0).widget()
-        old_basic_label = input_layout.itemAt(1).widget()
-        old_precision_label = input_layout.itemAt(3).widget()
-        help_text = input_layout.itemAt(5).widget()
-        calculate_button = self.ui("calculateButton")
-
-        self.hide_form_labels(basic_form)
-        self.hide_form_labels(precision_form)
-        help_text.setText("유동 방향은 +x입니다. Lip은 straight pipe 뒤에 νe로 꺾이는 수렴부이며, Plug 기둥과 Angelino contour는 별도 형상입니다.")
-
-        while input_layout.count():
-            input_layout.takeAt(0)
-
-        old_basic_label.hide()
-        old_precision_label.hide()
-        old_basic_label.deleteLater()
-        old_precision_label.deleteLater()
-
-        groups = ResponsiveGroups()
-        primary_form = QFormLayout()
-        primary_form.addRow("연소실 정체압 p₀", self.ui("pressureSpin"))
-        primary_form.addRow("설계 고도", self.ui("altitudeSpin"))
-        primary_form.addRow("Plug contour 시작 반지름", self.ui("throatSpin"))
-        primary_form.addRow("비열비 γ", self.ui("machSpin"))
-        primary_form.addRow("Plug truncation", self.ui("truncationSpin"))
-        primary_form.addRow("Lip straight pipe 길이", self.lip_pipe_length_spin)
-        primary_form.addRow("Lip pipe 반지름", self.lip_pipe_radius_spin)
-        primary_form.addRow("Plug 기둥 길이", self.plug_column_length_spin)
-        primary_form.addRow("Plug 기둥 반지름", self.plug_column_radius_spin)
-        primary_form.addRow("압력 단위", self.pressure_unit)
-        primary_form.addRow("길이 단위", self.length_unit)
-        primary_form.addRow("노즐 벽 두께", self.wall_spin)
-        groups.add_group(self.make_input_group("Plug 설계 조건", primary_form))
-
-        resolution_form = QFormLayout()
-        resolution_form.addRow("Plug contour points", self.ui("pointSpin"))
-        resolution_layout = QVBoxLayout()
-        resolution_layout.setContentsMargins(0, 0, 0, 0)
-        self.ui("sweepSpin").hide()
-        resolution_layout.addLayout(resolution_form)
-        resolution_layout.addWidget(help_text)
-        groups.add_group(self.make_input_group("해상도 / 계산 정밀도", resolution_layout))
-
-        input_layout.addWidget(title)
-        input_layout.addWidget(groups)
-        input_layout.addStretch()
-        input_layout.addWidget(calculate_button)
-
-    @staticmethod
-    def hide_form_labels(form):
-        """Old Designer labels must not remain visible after fields are reparented."""
-        for row in range(form.rowCount()):
-            item = form.itemAt(row, QFormLayout.LabelRole)
-            if item and item.widget():
-                item.widget().hide()
-
-
-    @staticmethod
-    def make_input_group(title_text, content):
-        group = QFrame()
-        group.setObjectName("inputGroup")
-        group.setMinimumWidth(310)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(14, 12, 14, 14)
-        title = QLabel(title_text)
-        title.setObjectName("group")
-        layout.addWidget(title)
-        layout.addLayout(content)
-        return group
+        self.wheel_filter = NoWheelFilter(self.window)
+        for field in (*self.window.findChildren(QDoubleSpinBox), *self.window.findChildren(QSpinBox), *self.window.findChildren(QComboBox)):
+            field.installEventFilter(self.wheel_filter)
 
     def connect_signals(self):
+        self.ui("angelinoButton").clicked.connect(lambda: self.ui("pages").setCurrentIndex(1))
         self.ui("backButton").clicked.connect(lambda: self.ui("pages").setCurrentIndex(0))
         self.ui("calculateButton").clicked.connect(self.calculate)
         self.ui("exportButton").clicked.connect(self.export)
         self.ui("renderModeCombo").currentTextChanged.connect(self.model.set_mode)
+        self.lip_visible.toggled.connect(self.update_model_visibility)
+        self.plug_visible.toggled.connect(self.update_model_visibility)
         self.ui("pointDisplayCombo").currentTextChanged.connect(self.contour.set_point_mode)
         self.pressure_unit.currentTextChanged.connect(self.update_pressure_unit)
         self.length_unit.currentTextChanged.connect(self.update_length_unit)
 
     def update_pressure_unit(self, unit):
         factor = PRESSURE_TO_MPA[unit]
-        spin = self.ui("pressureSpin")
-        physical_value = spin.value() * self.pressure_factor
-        spin.setRange(0.01 / factor, 100 / factor)
-        spin.setValue(physical_value / factor)
-        spin.setSuffix(f" {unit}")
+        for spin, minimum in ((self.ui("pressureSpin"), 0.01), (self.exit_pressure_spin, 0.000001)):
+            physical_value = spin.value() * self.pressure_factor
+            spin.setRange(minimum / factor, 100 / factor)
+            spin.setValue(physical_value / factor)
+            spin.setSuffix(f" {unit}")
         self.pressure_factor = factor
 
     def update_length_unit(self, unit):
         factor = LENGTH_TO_MM[unit]
-        fields = ((self.ui("altitudeSpin"), 0, 100000), (self.ui("throatSpin"), 0.1, 500),
-                  (self.lip_pipe_length_spin, 0.1, 1000), (self.lip_pipe_radius_spin, 0.1, 1000),
-                  (self.plug_column_length_spin, 0.1, 1000), (self.plug_column_radius_spin, 0.1, 1000),
-                  (self.wall_spin, 0.01, 1000))
+        fields = ((self.ui("throatSpin"), 0.2, 1000), (self.lip_pipe_radius_spin, 0.2, 2000),
+                  (self.plug_column_length_spin, 0.1, 1000), (self.plug_column_radius_spin, 0.2, 2000),
+                  (self.plug_converging_length_spin, 0.1, 1000), (self.throat_length_spin, 0, 1000),
+                  (self.lip_wall_spin, 0.01, 1000))
         for spin, minimum, maximum in fields:
             physical_value = spin.value() * self.length_factor
             spin.setRange(minimum / factor, maximum / factor)
@@ -572,43 +480,57 @@ class App:
             spin.setSuffix(f" {unit}")
         self.length_factor = factor
 
-    def pressure_mpa(self):
-        return self.ui("pressureSpin").value() * PRESSURE_TO_MPA[self.pressure_unit.currentText()]
+    def pressure_mpa(self, spin):
+        return spin.value() * PRESSURE_TO_MPA[self.pressure_unit.currentText()]
+
+    def update_model_visibility(self):
+        self.model.set_visibility(self.lip_visible.isChecked(), self.plug_visible.isChecked())
 
     def length_to_mm(self, value):
         return value * LENGTH_TO_MM[self.length_unit.currentText()]
 
     def calculate(self):
         inputs = AngelinoInputs(
-            self.pressure_mpa(),
-            self.length_to_mm(self.ui("altitudeSpin").value()) / 1000,
-            self.length_to_mm(self.ui("throatSpin").value()),
+            self.pressure_mpa(self.ui("pressureSpin")),
+            self.pressure_mpa(self.exit_pressure_spin),
+            self.length_to_mm(self.ui("throatSpin").value()) / 2,
+            self.throat_area_spin.value(),
             self.ui("machSpin").value(),
             self.ui("truncationSpin").value(),
             self.ui("pointSpin").value(),
-            self.length_to_mm(self.lip_pipe_length_spin.value()),
-            self.length_to_mm(self.lip_pipe_radius_spin.value()),
+            self.length_to_mm(self.lip_pipe_radius_spin.value()) / 2,
             self.length_to_mm(self.plug_column_length_spin.value()),
-            self.length_to_mm(self.plug_column_radius_spin.value()),
-            self.length_to_mm(self.wall_spin.value()),
+            self.length_to_mm(self.plug_column_radius_spin.value()) / 2,
+            self.length_to_mm(self.plug_converging_length_spin.value()),
+            self.length_to_mm(self.throat_length_spin.value()),
+            self.length_to_mm(self.lip_wall_spin.value()),
         )
         try:
             result = self.calculator.calculate(inputs)
         except (ValueError, ZeroDivisionError) as error:
-            QMessageBox.warning(self.window, "계산 불가", f"입력값을 확인하세요.\n{error}")
+            dialog = QMessageBox(QMessageBox.Warning, "계산 불가", f"입력값을 확인하세요.\n{error}", parent=self.window)
+            dialog.setStyleSheet("QLabel{color:#1f2933;}")
+            dialog.exec()
             return
         self.points = result.aerospike
         self.lip_points = result.lip
-        self.lip_outer_points = [(x, radius + result.wall_thickness_mm) for x, radius in result.lip]
-        self.contour.set_geometry(result.aerospike, result.lip, result.wall_thickness_mm)
-        self.model.set_geometry(result.aerospike, result.lip, result.wall_thickness_mm)
+        self.lip_outer_points = [(x, radius + result.lip_wall_thickness_mm) for x, radius in result.lip]
+        self.contour.set_geometry(result.aerospike, result.lip, result.lip_wall_thickness_mm)
+        self.model.set_geometry(result.aerospike, result.lip, result.lip_wall_thickness_mm)
+        self.me_value.setText(f"{result.design_exit_mach:.5f}")
         rows = [
             "Angelino 1964 approximate axisymmetric plug nozzle",
-            f"design pressure ratio (p0/pa), {result.design_pressure_ratio:.5f}",
+            f"design pressure ratio (p0/pe), {result.design_pressure_ratio:.5f}",
+            f"design exit pressure, {inputs.exit_pressure_mpa:.6f} MPa",
             f"design exit Mach, {result.design_exit_mach:.5f}",
             f"throat angle, {result.throat_angle_deg:.5f} deg",
             f"geometric throat area, {result.throat_area_mm2:.5f} mm^2",
             f"Lip exit radius, {result.lip_radius_mm:.5f} mm",
+            f"Plug base radius, {result.base_radius_mm:.5f} mm",
+            f"Plug converging length, {inputs.plug_converging_length_mm:.5f} mm",
+            f"constant annular throat length lₜ, {result.throat_gap_length_mm:.5f} mm",
+            f"Mach sweep, M=1.00000 → Me={result.design_exit_mach:.5f}",
+            f"Mach sweep / contour samples, {inputs.contour_points}",
             "",
             "part, index, x_mm, r_mm",
         ]
@@ -617,7 +539,7 @@ class App:
         rows += [f"Plug, {index:03d}, {x:.5f}, {radius:.5f}" for index, (x, radius) in enumerate(self.points)]
         self.ui("coordinatesText").setPlainText("\n".join(rows))
         self.ui("statusLabel").setText(
-            f"✓ Tapered Lip 2개 + Plug {len(self.points)}개 좌표 생성 | Me={result.design_exit_mach:.3f}, p0/pa={result.design_pressure_ratio:.2f}"
+            f"✓ M=1→{result.design_exit_mach:.3f} 스위프 완료 | Lip {len(self.lip_points)}개 + Plug {len(self.points)}개 좌표"
         )
         self.ui("designTabs").setCurrentIndex(1)
 
