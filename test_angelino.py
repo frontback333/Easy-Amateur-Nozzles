@@ -30,13 +30,24 @@ class AngelinoCalculatorTest(unittest.TestCase):
         self.assertLess(result.aerospike[-1][1], result.aerospike[0][1])
 
     def test_full_plug_reaches_the_centerline(self):
-        result = AngelinoCalculator().calculate(AngelinoInputs(
+        calculator = AngelinoCalculator()
+        result = calculator.calculate(AngelinoInputs(
             chamber_pressure_mpa=3.5, exit_pressure_mpa=0.101325, spike_throat_radius_mm=20, throat_area_mm2=269.32157,
             gamma=1.22, truncation_percent=0, contour_points=40,
             lip_pipe_radius_mm=28, plug_column_length_mm=20, plug_column_radius_mm=16,
             plug_converging_length_mm=10, throat_gap_length_mm=2, lip_wall_thickness_mm=2,
         ))
         self.assertLess(result.aerospike[-1][1], 0.002)
+        mach = result.design_exit_mach
+        theta_t = calculator.prandtl_meyer(mach, 1.22)
+        mu = math.asin(1 / mach)
+        epsilon = calculator.area_ratio(mach, 1.22)
+        radius = math.sqrt(max(0.0, result.lip_radius_mm ** 2 - (
+            result.lip_radius_mm ** 2 - 20 ** 2
+        ) * epsilon * math.sin(mu) / (math.sin(mu) * math.cos(theta_t))))
+        expected = ((result.lip_radius_mm - radius) / math.tan(mu), radius)
+        self.assertAlmostEqual(result.aerospike[-1][0], expected[0], places=12)
+        self.assertAlmostEqual(result.aerospike[-1][1], expected[1], places=12)
 
     def test_throat_length_does_not_change_lip_angle(self):
         calculator = AngelinoCalculator()

@@ -89,8 +89,11 @@ class AngelinoCalculator:
         lengths = [0.0]
         for first, second in zip(full, full[1:]):
             lengths.append(lengths[-1] + math.dist(first, second))
-        cutoff = lengths[-1] * (1 - value.truncation_percent / 100)
-        contour = [point for point, length in zip(full, lengths) if length <= cutoff]
+        # At 0%, retain the direct M=M_e point rather than relying on a length comparison.
+        contour = full if value.truncation_percent == 0 else [
+            point for point, length in zip(full, lengths)
+            if length <= lengths[-1] * (1 - value.truncation_percent / 100)
+        ]
         throat_hold = value.throat_gap_length_mm
         throat_area_factor = throat_area * math.cos(theta_t) / math.pi
 

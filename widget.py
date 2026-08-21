@@ -38,6 +38,7 @@ class ContourPreview(QWidget):
         self.lip: list[tuple[float, float]] = []
         self.lip_wall = 0.0
         self.point_mode = "표시 안함"
+        self.line_width = 2.0
         self.hit_points: list[tuple[QPoint, int, float, float]] = []
         self.setMinimumHeight(260)
         self.setMouseTracking(True)
@@ -49,6 +50,10 @@ class ContourPreview(QWidget):
 
     def set_point_mode(self, mode):
         self.point_mode = mode
+        self.update()
+
+    def set_line_width(self, width):
+        self.line_width = width
         self.update()
 
     def visible_indexes(self):
@@ -85,11 +90,12 @@ class ContourPreview(QWidget):
                 px = area.left() + area.width() * (x - min_x) / span_x
                 py = center_y + sign * area.height() * 0.42 * radius / max_radius
                 path.moveTo(px, py) if index == 0 else path.lineTo(px, py)
-            painter.setPen(QPen(QColor("#45d6b2"), 3))
+            painter.setPen(QPen(QColor("#45d6b2"), self.line_width))
             painter.drawPath(path)
 
         for sign in (-1, 1):
-            for offset, color, width in ((0, QColor("#f0bd68"), 2.4), (self.lip_wall, QColor("#d38c42"), 2.0)):
+            for offset, color, width in ((0, QColor("#f0bd68"), self.line_width * 0.8),
+                                         (self.lip_wall, QColor("#d38c42"), self.line_width * 0.67)):
                 path = QPainterPath()
                 for index, (x, radius) in enumerate(self.lip):
                     px = area.left() + area.width() * (x - min_x) / span_x
@@ -423,6 +429,7 @@ class App:
         self.lip_visible = self.ui("lipVisible")
         self.plug_visible = self.ui("plugVisible")
         self.model.set_mode(self.ui("renderModeCombo").currentText())
+        self.contour.set_line_width(self.ui("contourLineWidthSpin").value())
         for host_name, preview in (("contourHost", self.contour), ("modelHost", self.model)):
             layout = QVBoxLayout(self.ui(host_name))
             layout.setContentsMargins(0, 0, 0, 0)
@@ -455,6 +462,9 @@ class App:
         self.lip_visible.toggled.connect(self.update_model_visibility)
         self.plug_visible.toggled.connect(self.update_model_visibility)
         self.ui("pointDisplayCombo").currentTextChanged.connect(self.contour.set_point_mode)
+        self.ui("contourLineWidthApplyButton").clicked.connect(
+            lambda: self.contour.set_line_width(self.ui("contourLineWidthSpin").value())
+        )
         self.pressure_unit.currentTextChanged.connect(self.update_pressure_unit)
         self.length_unit.currentTextChanged.connect(self.update_length_unit)
 
